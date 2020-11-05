@@ -100,16 +100,20 @@ let shift piece dir board =
 
 (* graphics *)
 let draw_block i (x,y) s margin_side =
-    let colors = [|red; green; blue; yellow; cyan; magenta; black|] in
+    let orange = rgb 255 153 51 and purple = rgb 153 51 255 in
+    let colors = [|blue; cyan; red; orange; yellow; purple; green|] in
     set_color colors.(i); fill_rect (s*(x+margin_side)) (s*y) (s-1) (s-1)
 
 let draw_piece (blocks, i, (x,y), _) s margin_side =
     Array.iter (fun (px,py) -> draw_block i (x+px,y+py) s margin_side) blocks
 
 let draw_frame width height margin_side scale color =
-    set_color background; lineto (scale*margin_side) 0; set_color color;
-    let lineto_scaled (x,y) = lineto (scale*x) (scale*y-1) in
-    List.iter lineto_scaled [(margin_side,height); (margin_side+width,height); (margin_side+width,0)]
+    let lineto (x,y) = lineto (scale*x) (scale*y-1) and moveto (x,y) = moveto (scale*x) (scale*y-1) in
+    set_color (rgb 224 224 224);
+    for x = 1 to (width-1) do moveto (margin_side+x,0); lineto (margin_side+x,height) done;
+    for y = 1 to (height-1) do moveto (margin_side,y); lineto (margin_side+width,y) done;
+    moveto (margin_side,0); set_color color;
+    List.iter lineto [(margin_side,height); (margin_side+width,height); (margin_side+width,0)]
 
 let draw_board board margin_side scale =
     let width = Array.length !board and height = Array.length !board.(0) in
