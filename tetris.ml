@@ -117,12 +117,11 @@ let draw_frame width height margin_side scale color =
 
 let draw_board board margin_side scale =
     let width = Array.length !board and height = Array.length !board.(0) in
-    for x = 0 to width-1 do
-        for y = 0 to height-1 do
-            let i = !board.(x).(y) in
-            if i != -1 then draw_block i (x,y) scale margin_side
-        done
-    done
+    let rec draw_board x y =
+        let i = !board.(x).(y) in
+        if i != -1 then draw_block i (x,y) scale margin_side;
+        if (x+1)<width then draw_board (x+1) y else if (y+1)<height then draw_board 0 (y+1) in
+    draw_board 0 0
 
 let draw_next next width height s margin_side =
     let rec aux l i =
@@ -162,19 +161,22 @@ let () =
     let bag = ref [] and next = ref [] in
     let piece = ref (make_piece (take_next next bag n_pieces n_next)) in
 
-    open_graph (sprintf (" %dx%d") (scale*(width+2*margin_side)) (scale*(height+margin_top)));
-    let c = ref ' ' in
-    while !c!='q' do
+    let rec loop () =
         clear_graph ();
         draw_board board margin_side scale;
         draw_next next width height scale margin_side;
         draw_piece !piece scale margin_side;
         draw_frame width height margin_side scale black;
-        c := read_key ();
-        match !c with
-        | 'z' -> rotate piece (-1) board
-        | 'x' -> rotate piece 1 board
-        | 'm' -> shift piece (-1) board
-        | ',' -> shift piece 1 board
-        | _   -> if not (drop piece board) then piece := make_piece (take_next next bag n_pieces n_next)
-    done
+        match (read_key ()) with
+        | 'q' -> ()
+        | c   -> (
+            match c with
+            | 'z' -> rotate piece (-1) board;
+            | 'x' -> rotate piece 1 board;
+            | 'm' -> shift piece (-1) board;
+            | ',' -> shift piece 1 board;
+            | _   -> if not (drop piece board) then piece := make_piece (take_next next bag n_pieces n_next));
+            loop () in
+
+    open_graph (sprintf (" %dx%d") (scale*(width+2*margin_side)) (scale*(height+margin_top)));
+    loop ()
