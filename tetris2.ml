@@ -2,7 +2,7 @@ type shift = L | R
 type rot = CCW | CW
 type drop = Soft | Hard
 type move = Shift of shift | Rot of rot | Drop of drop | Hold | Quit
-type piece_in_play = { i: int; loc: int * int; r: int }
+type piece_in_play = { i: int; loc: int * int; r: int; ghost: int }
 type state = { score: int; board: int array array; pip: piece_in_play option; hold: int option; queue: int list; bag: int list }
 type cfg = { width: int; height: int; piece_rots: (int * int) list list list; offsets: (int * int) array array array;
              scale: int; margin_side: int; margin_top: int; colors: Graphics.color array }
@@ -57,18 +57,20 @@ let rec tick c state cfg =
         | 's' -> Some (Drop Soft)
         | 'd' -> Some (Shift R)
         | _   -> None in
+    let is_pip_legal pip = is_legal {state with pip = Some pip} cfg in
+    let pip_drops = function { loc = (x, y); _ } as pip ->
+        List.init (y+1) (fun dy -> {pip with loc = (x, y-dy)}) in
     let gen_pips = function
         | (Quit, _) | (Hold, _) | (Drop Soft, _) ->
             failwith "gen_states called for Quit/Hold/Drop Soft"
-        | (Drop Hard, ({ loc = (x, y); _ } as pip)) ->
-            List.init (y+1) (fun dy -> {pip with loc = (x, y-dy)})
+        | (Drop Hard, pip) -> pip_drops pip
         | (Rot dr, ({ i; loc = (x, y); r = r0 } as pip)) ->
             let r1 = (r0 + if dr = CCW then 3 else 5) mod 4 in
             let rot (x0, y0) (x1, y1) = {pip with loc = (x+x0-x1, y+y0-y1); r = r1} in
             Array.to_list (Array.map2 rot cfg.offsets.(i).(r0) cfg.offsets.(i).(r1))
         | (Shift dx, ({ loc = (x0, y); _ } as pip)) ->
-            [{pip with loc = (x0 + (if dx = L then (-1) else 1), y)}] in
-    let is_pip_legal pip = is_legal {state with pip = Some pip} cfg in
+            let x1 = x0 + if dx = L then (-1) else 1 in
+            [{pip with loc = (x1, y)}] in
     let place state { i; loc = (x, y); r } =
         let blocks = (List.nth (List.nth cfg.piece_rots i) r) in
         List.iter (fun (bx, by) -> state.board.(x+bx).(y+by) <- i ) blocks;
@@ -78,19 +80,20 @@ let rec tick c state cfg =
         let dropped_state = {state with pip = Some {pip with loc = (x, y-1)}} in
         if is_legal dropped_state cfg then Some dropped_state
         else pass (place state pip) in
-    let hard_drop = function { loc = (x, y) } as pip ->
-        let pips = gen_pips (Drop Hard, pip) in
-        let is_pip_illegal pip = not (is_pip_legal pip) in
-        let illegal_pip = List.find_opt is_pip_illegal pips in
-        let next_pip = match illegal_pip with
-            | None -> {pip with loc = (x, 0)}
-            | Some { loc = (x, y) } -> {pip with loc = (x, y+1)} in
-        pass (place state next_pip) in
+    let hard_drop = function { loc = (x, _); ghost = y } as pip ->
+        pass (place state {pip with loc = (x, y)}) in
     let hold i =
         let state = {state with pip = None} in
         match state.hold with
         | None -> pass {state with hold = Some i}
         | Some j -> pass {state with hold = Some i; queue = j::state.queue} in
+    let update_ghost pip =
+        let pips = pip_drops pip in
+        let is_pip_illegal pip = not (is_pip_legal pip) in
+        let illegal_pip = List.find_opt is_pip_illegal pips in
+        match illegal_pip with
+        | None -> {pip with ghost = 0}
+        | Some { loc = (_, y) } -> {pip with ghost = y+1} in
     let spawn =
         let (i, queue, bag) =
             let n = List.length cfg.piece_rots in
@@ -103,7 +106,8 @@ let rec tick c state cfg =
                 | i::a::b::c::d::bag -> (i, [a;b;c;d], bag)
                 | _ -> failwith "gen_bag n produced <5 elements")
             | ([], _) | (_, []) -> failwith "empty bag xor empty queue" in
-        let spawn_pip = { i; loc = (5, cfg.height-2); r = 0 } in
+        let spawn_pip =
+            update_ghost { i; loc = (5, cfg.height-2); r = 0; ghost = 0 } in
         let spawn_state = {state with pip = Some spawn_pip; queue; bag} in
         if is_legal spawn_state cfg then Some spawn_state else None in
     match (move, state.pip) with
@@ -116,7 +120,7 @@ let rec tick c state cfg =
     | (Some move, Some pip) ->
         match List.find_opt is_pip_legal (gen_pips (move, pip)) with
         | None -> Some state (* tick 's' state cfg *) (* soft drop or pass? *)
-        | pip -> Some {state with pip}
+        | Some pip -> Some {state with pip = Some (update_ghost pip)}
 
 let draw { score; board = b; pip; hold; queue = q; bag } { width = w; height = h; scale = s; margin_side = ms; colors; piece_rots } =
     let open Graphics in
@@ -135,8 +139,10 @@ let draw { score; board = b; pip; hold; queue = q; bag } { width = w; height = h
         b in
     let draw_pip = function
         | None -> ()
-        | Some {i; loc = (x, y); r} ->
+        | Some {i; loc = (x, y); r; ghost} ->
+            let dgray = rgb 191 191 191 in
             let blocks = List.nth (List.nth piece_rots i) r in
+            draw_blocks (ms+x) ghost dgray blocks;
             draw_blocks (ms+x) y colors.(i) blocks in
     let rec draw_queue x y depth = function
         | [] -> draw_text x y "QUEUE"
@@ -151,7 +157,7 @@ let draw { score; board = b; pip; hold; queue = q; bag } { width = w; height = h
         let rows = List.init (h-1) (fun i -> (0, (i+1), w, (i+1))) in
         let cols = List.init (w-1) (fun i -> ((i+1), 0, (i+1), h)) in
         let frame = [ (0, 0, 0, h); (0, h, w, h); (w, h, w, 0) ] in
-        let gray = rgb 224 224 224 in
+        let gray = rgb 223 223 223 in
         List.iter (fun (c, lines) ->
             List.iter (fun (x0, y0, x1, y1) ->
                 draw_line (ms+x0) y0 (ms+x1) y1 c)
