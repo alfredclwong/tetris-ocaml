@@ -1,14 +1,13 @@
+type piece_in_play = { i: int; loc: int * int; r: int; ghost: int }
+type state = { score: int; board: int array array; pip: piece_in_play option; hold: int option; queue: int list; bag: int list }
 type shift = L | R
 type rot = CCW | CW
 type drop = Soft | Hard
 type move = Shift of shift | Rot of rot | Drop of drop | Hold | Quit
-type piece_in_play = { i: int; loc: int * int; r: int; ghost: int }
-type state = { score: int; board: int array array; pip: piece_in_play option; hold: int option; queue: int list; bag: int list }
 type cfg = { width: int; height: int; piece_rots: (int * int) list list list; offsets: (int * int) array array array;
              scale: int; margin_side: int; margin_top: int; colors: Graphics.color array }
 
 let (--) a b = Array.init (b-a) (fun i -> a+i)
-
 let gen_bag n_pieces =
     let shuffle a =
         for i = (Array.length a)-1 downto 1 do
@@ -19,16 +18,6 @@ let gen_bag n_pieces =
         done;
         a in
     Array.to_list (shuffle (0--n_pieces))
-
-let is_legal { board; pip } { width = w; height = h; piece_rots } =
-    match pip with
-    | None -> true
-    | Some { i; loc = (x, y); r } ->
-        let blocks = List.nth (List.nth piece_rots i) r in
-        let oob (bx, by) = (x+bx)<0 || (x+bx)>=w || (y+by)<0 || (y+by)>=h in
-        let colliding (bx, by) = board.(x+bx).(y+by) > (-1) in
-        let check_blocks f = List.for_all (fun b -> not (f b)) blocks in
-        List.for_all check_blocks [oob; colliding]
 
 let clear_lines board =
     let w = Array.length board and h = Array.length board.(0) in
@@ -45,19 +34,19 @@ let clear_lines board =
             else check (x+1) y) in
     check 0 0
 
-let rec tick c state cfg =
-    let move =
-        match c with
-        | 'q' -> Some (Quit)
-        | 'j' -> Some (Rot CCW)
-        | 'k' -> Some (Rot CW)
-        | 'l' -> Some (Hold)
-        | 'w' -> Some (Drop Hard)
-        | 'a' -> Some (Shift L)
-        | 's' -> Some (Drop Soft)
-        | 'd' -> Some (Shift R)
-        | _   -> None in
-    let is_pip_legal pip = is_legal {state with pip = Some pip} cfg in
+let rec tick move state cfg =
+    let is_legal = function { i; loc = (x, y); r } ->
+        let w = cfg.width and h = cfg.height
+        and piece_rots = cfg.piece_rots and board = state.board in
+        let blocks = List.nth (List.nth piece_rots i) r in
+        let oob (bx, by) = (x+bx)<0 || (x+bx)>=w || (y+by)<0 || (y+by)>=h in
+        let colliding (bx, by) = board.(x+bx).(y+by) > (-1) in
+        let check_blocks f = List.for_all (fun b -> not (f b)) blocks in
+        List.for_all check_blocks [oob; colliding] in
+    let place state { i; loc = (x, y); r } =
+        let blocks = (List.nth (List.nth cfg.piece_rots i) r) in
+        List.iter (fun (bx, by) -> state.board.(x+bx).(y+by) <- i ) blocks;
+        clear_lines state.board; {state with pip = None} in
     let pip_drops = function { loc = (x, y); _ } as pip ->
         List.init (y+1) (fun dy -> {pip with loc = (x, y-dy)}) in
     let gen_pips = function
@@ -71,25 +60,20 @@ let rec tick c state cfg =
         | (Shift dx, ({ loc = (x0, y); _ } as pip)) ->
             let x1 = x0 + if dx = L then (-1) else 1 in
             [{pip with loc = (x1, y)}] in
-    let place state { i; loc = (x, y); r } =
-        let blocks = (List.nth (List.nth cfg.piece_rots i) r) in
-        List.iter (fun (bx, by) -> state.board.(x+bx).(y+by) <- i ) blocks;
-        clear_lines state.board; {state with pip = None} in
-    let pass state = tick ' ' state cfg in
     let soft_drop = function { loc = (x, y); _ } as pip ->
-        let dropped_state = {state with pip = Some {pip with loc = (x, y-1)}} in
-        if is_legal dropped_state cfg then Some dropped_state
-        else pass (place state pip) in
+        let dropped_pip = {pip with loc = (x, y-1)} in
+        if is_legal dropped_pip then Some ({state with pip = Some dropped_pip})
+        else tick None (place state pip) cfg in
     let hard_drop = function { loc = (x, _); ghost = y } as pip ->
-        pass (place state {pip with loc = (x, y)}) in
+        tick None (place state {pip with loc = (x, y)}) cfg in
     let hold i =
         let state = {state with pip = None} in
         match state.hold with
-        | None -> pass {state with hold = Some i}
-        | Some j -> pass {state with hold = Some i; queue = j::state.queue} in
+        | None -> tick None {state with hold = Some i} cfg
+        | Some j -> tick None {state with hold = Some i; queue = j::state.queue} cfg in
     let update_ghost pip =
         let pips = pip_drops pip in
-        let is_pip_illegal pip = not (is_pip_legal pip) in
+        let is_pip_illegal pip = not (is_legal pip) in
         let illegal_pip = List.find_opt is_pip_illegal pips in
         match illegal_pip with
         | None -> {pip with ghost = 0}
@@ -109,7 +93,7 @@ let rec tick c state cfg =
         let spawn_pip =
             update_ghost { i; loc = (5, cfg.height-2); r = 0; ghost = 0 } in
         let spawn_state = {state with pip = Some spawn_pip; queue; bag} in
-        if is_legal spawn_state cfg then Some spawn_state else None in
+        if is_legal spawn_pip then Some spawn_state else None in
     match (move, state.pip) with
     | (Some Quit, _) -> None
     | (_, None) -> spawn
@@ -118,7 +102,7 @@ let rec tick c state cfg =
     | (Some Drop Soft, Some pip) -> soft_drop pip
     | (Some Drop Hard, Some pip) -> hard_drop pip
     | (Some move, Some pip) ->
-        match List.find_opt is_pip_legal (gen_pips (move, pip)) with
+        match List.find_opt is_legal (gen_pips (move, pip)) with
         | None -> Some state (* tick 's' state cfg *) (* soft drop or pass? *)
         | Some pip -> Some {state with pip = Some (update_ghost pip)}
 
@@ -176,7 +160,18 @@ let tetris = function { width = w; height = h; piece_rots; offsets; scale = s;
     let rec loop = function
         | ((curr_state::_ as state_history), move_history) as history -> (
             draw curr_state cfg;
-            match tick (Graphics.read_key ()) curr_state cfg with
+            let move =
+                match Graphics.read_key () with
+                | 'q' -> Some (Quit)
+                | 'j' -> Some (Rot CCW)
+                | 'k' -> Some (Rot CW)
+                | 'l' -> Some (Hold)
+                | 'w' -> Some (Drop Hard)
+                | 'a' -> Some (Shift L)
+                | 's' -> Some (Drop Soft)
+                | 'd' -> Some (Shift R)
+                | _   -> None in
+            match tick move curr_state cfg with
             | None -> history
             | Some next_state -> loop (next_state::state_history, move_history))
         | ([], _) ->
