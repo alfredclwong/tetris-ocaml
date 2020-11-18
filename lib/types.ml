@@ -6,7 +6,7 @@ type move = Shift of shift | Rot of rot | Drop of drop | Hold | Quit
 type pip = {
   i:            int;
   loc:          int*int;
-  r:            int;
+  r:            int; (* TODO add (int*int) list list, a cycling list of block rotations *)
   ghost:        int;
 }
 

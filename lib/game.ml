@@ -20,7 +20,7 @@ let tetris = function { width = w; height = h; scale = s;
                 | 's' -> Some (Drop Soft)
                 | 'd' -> Some (Shift R)
                 | _   -> None in
-            match tick move curr_state cfg with
+            match tick curr_state cfg move with
             | None -> history
             | Some next_state -> loop (next_state::state_history, move_history))
         | ([], _) ->
