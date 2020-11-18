@@ -1,0 +1,3 @@
+(library
+ (name tetris)
+ (libraries graphics))
