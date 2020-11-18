@@ -1,7 +1,3 @@
-open Graphics
-let orange = rgb 255 153 51 and purple = rgb 153 51 255
-let colors = [| blue; cyan; red; orange; yellow; purple; green |]
-
 let piece_rots =
   let pieces =
       [[(-1, 0); (-1, 1); ( 0, 0); ( 1, 0)];

@@ -2,10 +2,9 @@ open Draw
 open Types
 open Logic
 
-let tetris = function { width = w; height = h; scale = s;
-                        margin_side = ms; margin_top = mt; _ } as cfg ->
+let tetris = function { width = w; height = h; _ } as cfg ->
     Random.self_init ();
-    Graphics.open_graph (Printf.sprintf " %dx%d" ((w+ms*2)*s) ((h+mt)*s));
+    Draw.init cfg;
     let rec loop = function
         | ((curr_state::_ as state_history), move_history) as history -> (
             draw curr_state cfg;
